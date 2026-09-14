@@ -18,7 +18,8 @@ jobs:
           base64 -d project.b64 > project.zip
           unzip -q project.zip
           cd aiplaced-android-v0.1
-          patch -p1 < ../v0.2.1.patch
+          patch -p1 < ../v0.2.patch
+          patch -p1 < ../v0.2.1-delta.patch
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
