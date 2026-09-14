@@ -1,0 +1,300 @@
+--- a/app/src/main/java/com/aiplaced/app/data/ApiClient.kt
++++ b/app/src/main/java/com/aiplaced/app/data/ApiClient.kt
+@@ -11,6 +11,12 @@
+ 
+ class ApiException(message: String, val status: Int = 0) : Exception(message)
+ 
++data class AvailabilityResult(
++    val available: Boolean,
++    val message: String,
++    val matchedOffers: Int = 0
++)
++
+ class ApiClient(private val session: SessionStore) {
+     private fun endpoint(path: String): String = session.baseUrl.trimEnd('/') + "/wp-json/aiplaced/v1" + path
+ 
+@@ -86,8 +92,17 @@
+         )
+     }
+ 
+-    suspend fun setAvailability(available: Boolean): String = withContext(Dispatchers.IO) {
+-        request(endpoint("/worker/availability"), "POST", JSONObject().put("available", available)).optString("message")
++    suspend fun setAvailability(available: Boolean): AvailabilityResult = withContext(Dispatchers.IO) {
++        val json = request(
++            endpoint("/worker/availability"),
++            "POST",
++            JSONObject().put("available", available)
++        )
++        AvailabilityResult(
++            available = json.optBoolean("available", available),
++            message = json.optString("message"),
++            matchedOffers = json.optInt("matched_offers", 0)
++        )
+     }
+ 
+     suspend fun acceptOffer(id: Long): String = withContext(Dispatchers.IO) {
+--- a/app/src/main/java/com/aiplaced/app/ui/AIPlacedApp.kt
++++ b/app/src/main/java/com/aiplaced/app/ui/AIPlacedApp.kt
+@@ -222,10 +222,53 @@
+         }
+     }
+ 
++    fun changeAvailability(target: Boolean) {
++        if (busy) return
++        val previous = dashboard ?: return
++        busy = true
++        error = ""
++        dashboard = previous.copy(worker = previous.worker.copy(available = target))
++        scope.launch {
++            try {
++                val result = api.setAvailability(target)
++                if (result.available != target) {
++                    throw IllegalStateException(
++                        if (target) "The server did not save you as online." else "The server did not save you as offline."
++                    )
++                }
++
++                dashboard = previous.copy(worker = previous.worker.copy(available = result.available))
++                val fresh = api.workerDashboard()
++                dashboard = if (fresh.worker.available == result.available) {
++                    fresh
++                } else {
++                    fresh.copy(worker = fresh.worker.copy(available = result.available))
++                }
++                error = ""
++                Toast.makeText(
++                    context,
++                    result.message.ifBlank { if (target) "You're online." else "You're offline." },
++                    Toast.LENGTH_SHORT
++                ).show()
++            } catch (e: Exception) {
++                dashboard = previous
++                val message = e.message ?: "Could not update your status."
++                error = message
++                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
++            } finally {
++                busy = false
++            }
++        }
++    }
++
+     LaunchedEffect(Unit) {
+         while (true) {
+-            try { dashboard = api.workerDashboard(); error = "" } catch (_: Exception) {}
+-            loading = false
++            if (!busy) {
++                try { dashboard = api.workerDashboard(); error = "" } catch (_: Exception) {}
++                loading = false
++            }
+             delay(if (dashboard?.worker?.available == true) 5000 else 15000)
+         }
+     }
+@@ -248,21 +291,8 @@
+                 available = d.worker.available,
+                 city = d.worker.city,
+                 today = d.earnings.today,
+-                onToggle = { target ->
+-                    if (busy) return@AvailabilityCard
+-                    busy = true
+-                    dashboard = d.copy(worker = d.worker.copy(available = target))
+-                    scope.launch {
+-                        try {
+-                            val msg = api.setAvailability(target)
+-                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+-                            dashboard = api.workerDashboard()
+-                        } catch (e: Exception) {
+-                            dashboard = d
+-                            Toast.makeText(context, e.message ?: "Could not update status", Toast.LENGTH_LONG).show()
+-                        } finally { busy = false }
+-                    }
+-                }
++                busy = busy,
++                onToggle = ::changeAvailability
+             )
+ 
+             d.active?.let { active ->
+@@ -286,7 +316,10 @@
+             Spacer(Modifier.height(18.dp))
+             SectionTitle("Work offers", if (d.worker.available) "AI MATCHED" else "OFFLINE")
+             if (!d.worker.available) {
+-                EmptyCard(Icons.Default.PowerSettingsNew, "You're offline", "Go online and AI will start matching paid work for you.")
++                OfflineWorkCard(
++                    busy = busy,
++                    onGoOnline = { changeAvailability(true) }
++                )
+             } else if (d.active != null) {
+                 EmptyCard(Icons.Default.CheckCircle, "You're already placed", "Finish your active placement before taking another offer.")
+             } else if (d.offers.isEmpty()) {
+@@ -327,20 +360,44 @@
+ }
+ 
+ @Composable
+-private fun AvailabilityCard(available: Boolean, city: String, today: Double, onToggle: (Boolean) -> Unit) {
++private fun AvailabilityCard(
++    available: Boolean,
++    city: String,
++    today: Double,
++    busy: Boolean,
++    onToggle: (Boolean) -> Unit
++) {
+     Card(shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+         Column(Modifier.padding(20.dp)) {
+             Row(verticalAlignment = Alignment.CenterVertically) {
+                 Column(Modifier.weight(1f)) {
+-                    Text(if (available) "You're online" else "You're offline", fontSize = 24.sp, fontWeight = FontWeight.Bold)
++                    Row(verticalAlignment = Alignment.CenterVertically) {
++                        Box(
++                            Modifier
++                                .size(10.dp)
++                                .background(
++                                    if (available) AIPlacedGreen else Color(0xFF68717D),
++                                    RoundedCornerShape(50)
++                                )
++                        )
++                        Spacer(Modifier.width(9.dp))
++                        Text(
++                            if (available) "You're online" else "You're offline",
++                            fontSize = 24.sp,
++                            fontWeight = FontWeight.Bold
++                        )
++                    }
+                     Text(
+-                        if (available) "AI is actively looking for work around $city." else "Switch on when you're ready to receive work offers.",
++                        if (available) {
++                            "AI is actively looking for work around ${city.ifBlank { "your area" }}."
++                        } else {
++                            "Go online when you're ready to receive work offers."
++                        },
+                         color = AIPlacedMuted,
+                         fontSize = 13.sp,
+-                        modifier = Modifier.padding(top = 5.dp)
++                        modifier = Modifier.padding(top = 7.dp)
+                     )
+                 }
+-                Switch(checked = available, onCheckedChange = onToggle)
+             }
+             Spacer(Modifier.height(18.dp))
+             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+@@ -348,6 +405,76 @@
+                 MiniStat(if (available) "LIVE" else "OFF", "Status", Modifier.weight(1f))
+                 MiniStat(city.ifBlank { "—" }, "Area", Modifier.weight(1f))
+             }
++            Spacer(Modifier.height(16.dp))
++            if (available) {
++                OutlinedButton(
++                    onClick = { onToggle(false) },
++                    enabled = !busy,
++                    modifier = Modifier.fillMaxWidth().height(54.dp)
++                ) {
++                    if (busy) {
++                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
++                    } else {
++                        Icon(Icons.Default.PowerSettingsNew, null)
++                        Spacer(Modifier.width(8.dp))
++                        Text("GO OFFLINE", fontWeight = FontWeight.ExtraBold)
++                    }
++                }
++            } else {
++                Button(
++                    onClick = { onToggle(true) },
++                    enabled = !busy,
++                    modifier = Modifier.fillMaxWidth().height(56.dp)
++                ) {
++                    if (busy) {
++                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
++                    } else {
++                        Icon(Icons.Default.PowerSettingsNew, null)
++                        Spacer(Modifier.width(8.dp))
++                        Text("GO ONLINE", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
++                    }
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun OfflineWorkCard(busy: Boolean, onGoOnline: () -> Unit) {
++    Card(shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
++        Column(
++            Modifier.padding(22.dp),
++            horizontalAlignment = Alignment.CenterHorizontally
++        ) {
++            Icon(
++                Icons.Default.PowerSettingsNew,
++                contentDescription = null,
++                tint = AIPlacedGreen,
++                modifier = Modifier.size(42.dp)
++            )
++            Text(
++                "You're offline",
++                fontSize = 20.sp,
++                fontWeight = FontWeight.Bold,
++                modifier = Modifier.padding(top = 12.dp)
++            )
++            Text(
++                "Go online and AI will start matching paid work for you.",
++                color = AIPlacedMuted,
++                fontSize = 13.sp,
++                modifier = Modifier.padding(top = 6.dp, bottom = 16.dp)
++            )
++            Button(
++                onClick = onGoOnline,
++                enabled = !busy,
++                modifier = Modifier.fillMaxWidth().height(52.dp)
++            ) {
++                if (busy) {
++                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
++                } else {
++                    Text("GO ONLINE", fontWeight = FontWeight.ExtraBold)
++                }
++            }
+         }
+     }
+ }
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -12,8 +12,23 @@
+         applicationId = "com.aiplaced.app"
+         minSdk = 26
+         targetSdk = 35
+-        versionCode = 1
+-        versionName = "0.1.0"
++        versionCode = 3
++        versionName = "0.2.1"
++    }
++
++    signingConfigs {
++        create("prototype") {
++            storeFile = rootProject.file("dev-signing.jks")
++            storePassword = "aiplaced-prototype"
++            keyAlias = "aiplaced-dev"
++            keyPassword = "aiplaced-prototype"
++        }
++    }
++
++    buildTypes {
++        getByName("debug") {
++            signingConfig = signingConfigs.getByName("prototype")
++        }
+     }
+ 
+     buildFeatures { compose = true }
+--- a/README.md
++++ b/README.md
+@@ -60,3 +60,15 @@
+ - Add a signed release keystore before Play Store distribution.
+ - v0.1 polls for work while the app is open. Firebase push notifications/background dispatch should be the next mobile feature.
+ - Real GPS-radius dispatch can be added after latitude/longitude fields are added to the backend worker/job tables.
++
++
++## v0.2.0
++- Replaced the hard-to-see availability switch with a large GO ONLINE / GO OFFLINE control.
++- The offline work card now has a functional GO ONLINE button.
++- Added clear busy/error feedback while availability is saved.
++
++
++## v0.2.1
++- Availability changes now use the persisted state returned by the server.
++- Background polling pauses while online/offline state is being changed.
++- Added explicit feedback when the server fails to persist the requested state.
