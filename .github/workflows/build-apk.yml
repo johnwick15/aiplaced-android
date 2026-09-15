@@ -1,4 +1,4 @@
-name: Build CSCAPrep APK
+name: Build CSCAPrep Native APK
 
 env:
   ANDROID_HOME: /usr/local/lib/android/sdk
@@ -9,7 +9,7 @@ on:
   push:
     branches: [ cscaprep-android ]
     paths-ignore:
-      - 'CSCAPrep.apk.b64'
+      - 'CSCAPrep-Native.apk.b64'
 
 permissions:
   contents: write
@@ -27,7 +27,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Prepare Android 35
+      - name: Install Android 35
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
@@ -47,22 +47,22 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
             --key testkey.pk8 \
             --cert testkey.x509.pem \
-            --out CSCAPrep.apk \
+            --out CSCAPrep-Native.apk \
             app/build/outputs/apk/debug/app-debug.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs CSCAPrep.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs CSCAPrep-Native.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: CSCAPrep-APK-v1.0.0
-          path: CSCAPrep.apk
+          name: CSCAPrep-Native-Android
+          path: CSCAPrep-Native.apk
           if-no-files-found: error
 
       - name: Publish retrievable APK bytes
         run: |
-          base64 -w0 CSCAPrep.apk > CSCAPrep.apk.b64
+          base64 -w0 CSCAPrep-Native.apk > CSCAPrep-Native.apk.b64
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CSCAPrep.apk.b64
-          git commit -m "Publish CSCAPrep APK v1.0.0 [skip ci]"
+          git add CSCAPrep-Native.apk.b64
+          git commit -m "Publish CSCAPrep native APK v1.1.0 [skip ci]"
           git push origin HEAD:cscaprep-android

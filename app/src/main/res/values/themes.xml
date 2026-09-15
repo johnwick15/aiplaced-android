@@ -1,11 +1,8 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.CSCAPrep" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:windowLightStatusBar">false</item>
-        <item name="android:statusBarColor">@color/cscaprep_blue</item>
-        <item name="android:navigationBarColor">@color/cscaprep_ink</item>
-        <item name="android:windowBackground">@color/cscaprep_background</item>
-        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#F3F8FC</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
     </style>
 </resources>

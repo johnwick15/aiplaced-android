@@ -1,1 +1,1 @@
-# No custom rules are required for this thin website client.
+# No custom rules required for v0.1.
