@@ -8,6 +8,11 @@ on:
   workflow_dispatch:
   push:
     branches: [ cscaprep-android ]
+    paths-ignore:
+      - 'CSCAPrep.apk.b64'
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -52,3 +57,12 @@ jobs:
           name: CSCAPrep-APK-v1.0.0
           path: CSCAPrep.apk
           if-no-files-found: error
+
+      - name: Publish retrievable APK bytes
+        run: |
+          base64 -w0 CSCAPrep.apk > CSCAPrep.apk.b64
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CSCAPrep.apk.b64
+          git commit -m "Publish CSCAPrep APK v1.0.0 [skip ci]"
+          git push origin HEAD:cscaprep-android
