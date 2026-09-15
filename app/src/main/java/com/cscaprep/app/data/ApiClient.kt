@@ -58,7 +58,8 @@ class ApiClient(private val session: SessionStore) {
     }
 
     suspend fun saveLanguage(language: String) = withContext(Dispatchers.IO) {
-        request("/language", "POST", JSONObject().put("language", language).put("guestKey", session.guestKey)); session.language = language
+        if (session.loggedIn) request("/language", "POST", JSONObject().put("language", language).put("guestKey", session.guestKey))
+        session.language = language
     }
 
     private fun parseAuth(o: JSONObject) = AuthResult(o.getString("token"), parseUser(o.getJSONObject("user")))
