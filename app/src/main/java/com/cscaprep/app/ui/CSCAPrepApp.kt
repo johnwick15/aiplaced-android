@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 
 package com.cscaprep.app.ui
 
@@ -147,6 +147,7 @@ fun CSCAPrepApp(api: ApiClient, session: SessionStore) {
 }
 
 @Composable private fun ResultScreen(result: Result, title: String, onDone: () -> Unit) { Column(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { Icon(Icons.Default.EmojiEvents, null, tint = Amber, modifier = Modifier.size(64.dp)); Text(title, color = Muted, textAlign = TextAlign.Center); Text("${result.percent}%", fontSize = 58.sp, fontWeight = FontWeight.Black, color = Blue); Text("${result.score} of ${result.total} correct", fontSize = 20.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.height(20.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) { Stat("Correct", result.correct, Green); Stat("Incorrect", result.incorrect, MaterialTheme.colorScheme.error); Stat("Unanswered", result.unanswered, Muted) }; Spacer(Modifier.height(28.dp)); Button(onDone, Modifier.fillMaxWidth()) { Text("Return home") } }
+}
 @Composable private fun Stat(label: String, value: Int, color: Color) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$value", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = color); Text(label, color = Muted, fontSize = 12.sp) } }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -160,5 +161,6 @@ fun CSCAPrepApp(api: ApiClient, session: SessionStore) {
 }
 
 @Composable private fun VerificationScreen(user: User, onBack: () -> Unit, onRefresh: () -> Unit, onResend: () -> Unit) { Column(Modifier.fillMaxSize().padding(26.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { Icon(Icons.Default.MarkEmailUnread, null, tint = Blue, modifier = Modifier.size(70.dp)); Spacer(Modifier.height(18.dp)); Text("Verify your email", fontSize = 28.sp, fontWeight = FontWeight.Bold); Text("We sent a secure link to ${user.email}. Open it, then return here.", color = Muted, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 12.dp)); Button(onRefresh, Modifier.fillMaxWidth()) { Text("I verified my email") }; OutlinedButton(onResend, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Resend verification") }; TextButton(onBack) { Text("Back") } }
+}
 
 @Composable private fun ErrorCard(message: String) { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) { Text(message, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(14.dp)) } }
