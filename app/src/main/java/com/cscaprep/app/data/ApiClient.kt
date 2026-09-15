@@ -20,6 +20,13 @@ class ApiClient(private val session: SessionStore) {
     suspend fun register(name: String, email: String, password: String, language: String) = withContext(Dispatchers.IO) {
         parseAuth(request("/mobile/register", "POST", JSONObject().put("name", name).put("email", email).put("password", password).put("language", language), false))
     }
+    suspend fun authConfig() = withContext(Dispatchers.IO) {
+        val o = request("/mobile/auth/config", authenticated = false)
+        AuthConfig(o.optBoolean("googleEnabled"), o.optString("googleClientId"), o.optString("requestId"), o.optString("nonce"))
+    }
+    suspend fun googleLogin(idToken: String, config: AuthConfig) = withContext(Dispatchers.IO) {
+        parseAuth(request("/mobile/google", "POST", JSONObject().put("idToken", idToken).put("requestId", config.requestId).put("nonce", config.nonce).put("language", session.language), false))
+    }
     suspend fun me() = withContext(Dispatchers.IO) { parseUser(request("/mobile/me").getJSONObject("user")) }
     suspend fun resendVerification() = withContext(Dispatchers.IO) { request("/mobile/resend-verification", "POST", JSONObject()).optBoolean("sent") }
     suspend fun forgotPassword(email: String) = withContext(Dispatchers.IO) { request("/mobile/forgot-password", "POST", JSONObject().put("email", email), false); true }
@@ -60,6 +67,17 @@ class ApiClient(private val session: SessionStore) {
     suspend fun saveLanguage(language: String) = withContext(Dispatchers.IO) {
         if (session.loggedIn) request("/language", "POST", JSONObject().put("language", language).put("guestKey", session.guestKey))
         session.language = language
+    }
+
+    suspend fun billingConfig() = withContext(Dispatchers.IO) {
+        val o = request("/mobile/billing/config"); val plansJson = o.optJSONArray("plans") ?: JSONArray()
+        val plans = buildList { for (i in 0 until plansJson.length()) { val p = plansJson.getJSONObject(i); add(BillingPlan(p.optInt("months"), p.optString("label"), p.optInt("amount"), p.optString("currency"), p.optString("priceLabel"), p.optBoolean("featured"))) } }
+        BillingConfig(o.optBoolean("enabled"), o.optString("publishableKey"), plans, o.optString("plan", "free"), o.optString("proUntil"))
+    }
+
+    suspend fun createPaymentIntent(months: Int) = withContext(Dispatchers.IO) {
+        val o = request("/mobile/billing/payment-intent", "POST", JSONObject().put("months", months))
+        PaymentIntentData(o.getString("clientSecret"), o.getString("publishableKey"), o.optInt("months", months))
     }
 
     private fun parseAuth(o: JSONObject) = AuthResult(o.getString("token"), parseUser(o.getJSONObject("user")))
