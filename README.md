@@ -2,12 +2,13 @@
 
 Native Kotlin and Jetpack Compose client for CSCAPrep.com. The app contains no WebView and connects securely to the WordPress CSCAPrep Core API.
 
-## Included in v1.2.0
+## Included in v1.2.1
 
 - Five-question guest Prep preview
 - Shared CSCAPrep.com accounts, progress, language, plan and Mock history
 - Email/password login and password reset
 - Native Sign in with Google through Android Credential Manager
+- Non-cacheable, single-use Google sign-in challenges
 - Native Stripe PaymentSheet for one-time 1, 3 and 6 month Pro access passes
 - Prep Mode and full-screen timed Mock Exams
 
