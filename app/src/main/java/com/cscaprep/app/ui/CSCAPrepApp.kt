@@ -3,6 +3,9 @@
 package com.cscaprep.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -32,8 +36,14 @@ import androidx.compose.ui.unit.sp
 import com.cscaprep.app.data.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.stripe.android.PaymentConfiguration
+import com.stripe.android.paymentsheet.PaymentSheet
+import com.stripe.android.paymentsheet.PaymentSheetResult
+import com.stripe.android.paymentsheet.rememberPaymentSheet
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 
-private enum class Screen { HOME, PREP, MOCKS, EXAM, RESULT, HISTORY, PROFILE, AUTH, VERIFY }
+private enum class Screen { HOME, PREP, MOCKS, EXAM, RESULT, HISTORY, PROFILE, UPGRADE, AUTH, VERIFY }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -68,8 +78,9 @@ fun CSCAPrepApp(api: ApiClient, session: SessionStore) {
             screen == Screen.EXAM && examContent != null -> ExamPlayer(examContent!!, onExit = { screen = Screen.MOCKS }, onSubmit = { answers, seconds -> scope.launch { loading = true; try { result = api.submit(examContent!!.exam.id, answers, seconds); refresh(); screen = Screen.RESULT } catch (e: Exception) { error = e.message ?: "Could not submit the exam." } finally { loading = false } } })
             screen == Screen.RESULT && result != null -> ResultScreen(result!!, examContent?.exam?.title.orEmpty(), onDone = { backHome() })
             screen == Screen.HISTORY -> HistoryScreen(bootstrap?.attempts.orEmpty(), onBack = { backHome() })
+            screen == Screen.UPGRADE -> UpgradeScreen(api, user, onBack = { backHome() }, onLogin = { openAuth(Screen.UPGRADE) }, onVerify = { previous = Screen.UPGRADE; screen = Screen.VERIFY }, onActivated = { account -> user = account; refresh(); screen = Screen.PROFILE })
             screen == Screen.PROFILE -> ProfileScreen(user, bootstrap?.access, session.language, error, onBack = { backHome() }, onLogin = { openAuth(Screen.PROFILE) }, onVerify = { previous = Screen.PROFILE; screen = Screen.VERIFY }, onLanguage = { lang -> scope.launch { try { api.saveLanguage(lang); session.language = lang; refresh() } catch (e: Exception) { error = e.message.orEmpty() } } }, onLogout = { scope.launch { api.logout(); user = null; refresh(); screen = Screen.HOME } })
-            else -> HomeScreen(bootstrap, user, error, onPrep = { screen = Screen.PREP }, onMock = { if (session.loggedIn && user?.verified == true) screen = Screen.MOCKS else openAuth(Screen.MOCKS) }, onHistory = { if (session.loggedIn && user?.verified == true) screen = Screen.HISTORY else openAuth(Screen.HISTORY) }, onProfile = { screen = Screen.PROFILE })
+            else -> HomeScreen(bootstrap, user, error, onPrep = { screen = Screen.PREP }, onMock = { if (session.loggedIn && user?.verified == true) screen = Screen.MOCKS else openAuth(Screen.MOCKS) }, onUpgrade = { if (session.loggedIn) screen = Screen.UPGRADE else openAuth(Screen.UPGRADE) }, onHistory = { if (session.loggedIn && user?.verified == true) screen = Screen.HISTORY else openAuth(Screen.HISTORY) }, onProfile = { screen = Screen.PROFILE })
         }
     }
 }
@@ -78,13 +89,14 @@ fun CSCAPrepApp(api: ApiClient, session: SessionStore) {
 
 @Composable private fun Brand(compact: Boolean = false) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(if (compact) 34.dp else 46.dp).background(Blue, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { Text("C", color = Color.White, fontSize = if (compact) 20.sp else 27.sp, fontWeight = FontWeight.Black) }; Spacer(Modifier.width(10.dp)); Column { Text("CSCAPrep.com", fontSize = if (compact) 19.sp else 25.sp, fontWeight = FontWeight.Bold, color = Navy); if (!compact) Text("Prepare with confidence", color = Muted, fontSize = 13.sp) } } }
 
-@Composable private fun HomeScreen(data: Bootstrap?, user: User?, error: String, onPrep: () -> Unit, onMock: () -> Unit, onHistory: () -> Unit, onProfile: () -> Unit) {
+@Composable private fun HomeScreen(data: Bootstrap?, user: User?, error: String, onPrep: () -> Unit, onMock: () -> Unit, onUpgrade: () -> Unit, onHistory: () -> Unit, onProfile: () -> Unit) {
     Scaffold(bottomBar = { NavigationBar { NavigationBarItem(true, onClick = {}, icon = { Icon(Icons.Default.Home, null) }, label = { Text("Home") }); NavigationBarItem(false, onClick = onHistory, icon = { Icon(Icons.Default.History, null) }, label = { Text("History") }); NavigationBarItem(false, onClick = onProfile, icon = { Icon(Icons.Default.Person, null) }, label = { Text("Profile") }) } }) { pad ->
         LazyColumn(Modifier.fillMaxSize().padding(pad).padding(horizontal = 20.dp), contentPadding = PaddingValues(vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { Brand(); Spacer(Modifier.height(22.dp)); Text(if (user != null) "Welcome back, ${user.name}" else "Start preparing for the CSCA", fontSize = 27.sp, fontWeight = FontWeight.Bold); Text(if (user != null) "Continue your preparation or begin a realistic mock exam." else "Try five Prep questions before creating your account.", color = Muted, modifier = Modifier.padding(top = 6.dp)) }
             if (error.isNotBlank()) item { ErrorCard(error) }
             item { ModeCard(Icons.Default.AutoStories, "Prep Mode", "Learn one question at a time with immediate answers and explanations.", "Start practicing", Blue, onPrep) }
             item { ModeCard(Icons.Default.Timer, "Mock Exam", "A timed, full-screen exam with answer sheet, flags and final submission.", "Open mock exams", Navy, onMock) }
+            if (data?.access?.isPro != true) item { ModeCard(Icons.Default.CreditCard, "CSCAPrep Pro", "Unlock the complete Prep and Mock experience with a one-time access pass.", "View access passes", Green, onUpgrade) }
             item { Text("Five CSCA subjects", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
             items(data?.subjects.orEmpty()) { s -> Card { Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(46.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape), contentAlignment = Alignment.Center) { Text(s.symbol, color = Blue, fontWeight = FontWeight.Bold) }; Spacer(Modifier.width(14.dp)); Column(Modifier.weight(1f)) { Text(s.label, fontWeight = FontWeight.SemiBold); Text("${s.questions} questions • ${s.minutes} minutes", color = Muted, fontSize = 13.sp) } } } }
         }
@@ -151,13 +163,102 @@ fun CSCAPrepApp(api: ApiClient, session: SessionStore) {
 @Composable private fun Stat(label: String, value: Int, color: Color) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$value", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = color); Text(label, color = Muted, fontSize = 12.sp) } }
 
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun UpgradeScreen(api: ApiClient, user: User?, onBack: () -> Unit, onLogin: () -> Unit, onVerify: () -> Unit, onActivated: (User) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var config by remember { mutableStateOf<BillingConfig?>(null) }
+    var selected by remember { mutableStateOf<Int?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    var notice by remember { mutableStateOf("") }
+    var sheetResult by remember { mutableStateOf<PaymentSheetResult?>(null) }
+    val paymentSheet = rememberPaymentSheet { sheetResult = it }
+
+    LaunchedEffect(user?.id, user?.verified) {
+        if (user != null && user.verified) {
+            loading = true
+            try {
+                config = api.billingConfig()
+                selected = config?.plans?.firstOrNull { it.featured }?.months ?: config?.plans?.firstOrNull()?.months
+            } catch (e: Exception) { error = e.message ?: "Could not load access passes." }
+            finally { loading = false }
+        }
+    }
+    LaunchedEffect(sheetResult) {
+        when (val outcome = sheetResult) {
+            PaymentSheetResult.Completed -> {
+                notice = "Payment received. Activating your access…"
+                repeat(20) {
+                    delay(1500)
+                    val latest = runCatching { api.me() }.getOrNull()
+                    if (latest?.plan == "pro") { sheetResult = null; onActivated(latest); return@LaunchedEffect }
+                }
+                notice = "Payment succeeded. Stripe is still confirming access; reopen this screen in a moment."
+            }
+            PaymentSheetResult.Canceled -> notice = "Payment cancelled. You were not charged."
+            is PaymentSheetResult.Failed -> error = outcome.error.message ?: "Payment could not be completed."
+            null -> Unit
+        }
+        sheetResult = null
+    }
+
+    Scaffold(topBar = { TopAppBar(title = { Text("CSCAPrep Pro") }, navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } }) }) { pad ->
+        Column(Modifier.fillMaxSize().padding(pad).padding(20.dp).verticalScroll(rememberScrollState())) {
+            Brand(); Spacer(Modifier.height(22.dp))
+            Text("Unlock complete preparation", fontSize = 27.sp, fontWeight = FontWeight.Bold)
+            Text("Choose a one-time access pass. Time is added to any access you already have.", color = Muted, modifier = Modifier.padding(top = 7.dp, bottom = 18.dp))
+            when {
+                user == null -> { ErrorCard("Log in to purchase an access pass for your CSCAPrep account."); Button(onLogin, Modifier.fillMaxWidth()) { Text("Log in or sign up") } }
+                !user.verified -> { ErrorCard("Verify your email before purchasing access."); Button(onVerify, Modifier.fillMaxWidth()) { Text("Verify email") } }
+                loading -> Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                config?.enabled != true || config?.plans.isNullOrEmpty() -> ErrorCard("Native payment is not configured yet. Please contact CSCAPrep support.")
+                else -> {
+                    config!!.plans.forEach { plan ->
+                        val active = selected == plan.months
+                        Card(Modifier.fillMaxWidth().padding(bottom = 12.dp).border(if (active) 2.dp else 1.dp, if (active) Blue else MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp)).clickable { selected = plan.months }) {
+                            Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(active, { selected = plan.months })
+                                Spacer(Modifier.width(10.dp)); Column(Modifier.weight(1f)) { Text(plan.label, fontWeight = FontWeight.Bold, fontSize = 18.sp); Text("One-time payment", color = Muted, fontSize = 13.sp) }
+                                Column(horizontalAlignment = Alignment.End) { Text(plan.priceLabel, color = Blue, fontWeight = FontWeight.Bold, fontSize = 18.sp); if (plan.featured) Text("Best value", color = Green, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                            }
+                        }
+                    }
+                    Button(onClick = { val months = selected ?: return@Button; scope.launch { loading = true; error = ""; notice = ""; try { val intent = api.createPaymentIntent(months); PaymentConfiguration.init(context, intent.publishableKey); paymentSheet.presentWithPaymentIntent(intent.clientSecret, PaymentSheet.Configuration.Builder("CSCAPrep.com").build()) } catch (e: Exception) { error = e.message ?: "Could not start payment." } finally { loading = false } } }, enabled = selected != null && !loading, modifier = Modifier.fillMaxWidth().height(54.dp)) { Icon(Icons.Default.Lock, null); Spacer(Modifier.width(8.dp)); Text("Continue to secure payment") }
+                    Spacer(Modifier.height(18.dp)); Text("Your payment details are entered in Stripe's secure native payment sheet and are never stored by CSCAPrep.", color = Muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                }
+            }
+            if (notice.isNotBlank()) Text(notice, color = Green, modifier = Modifier.padding(top = 14.dp))
+            if (error.isNotBlank()) ErrorCard(error)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun HistoryScreen(attempts: List<Attempt>, onBack: () -> Unit) { Scaffold(topBar = { TopAppBar(title = { Text("History") }, navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } }) }) { pad -> LazyColumn(Modifier.fillMaxSize().padding(pad).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { if (attempts.isEmpty()) item { Text("No completed Mock Exams yet.", color = Muted) }; items(attempts) { a -> Card { Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(a.title, fontWeight = FontWeight.Bold); Text(a.createdAt, color = Muted, fontSize = 12.sp) }; Text(if (a.total > 0) "${a.score * 100 / a.total}%" else "—", color = Blue, fontSize = 22.sp, fontWeight = FontWeight.Bold) } } } } } }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun ProfileScreen(user: User?, access: Access?, language: String, error: String, onBack: () -> Unit, onLogin: () -> Unit, onVerify: () -> Unit, onLanguage: (String) -> Unit, onLogout: () -> Unit) { Scaffold(topBar = { TopAppBar(title = { Text("Profile") }, navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } }) }) { pad -> Column(Modifier.fillMaxSize().padding(pad).padding(20.dp).verticalScroll(rememberScrollState())) { Brand(); Spacer(Modifier.height(24.dp)); if (user == null) { Text("You are using the five-question guest preview.", color = Muted); Spacer(Modifier.height(12.dp)); Button(onLogin, Modifier.fillMaxWidth()) { Text("Log in or sign up") } } else { Text(user.name, fontSize = 24.sp, fontWeight = FontWeight.Bold); Text(user.email, color = Muted); Text(if (user.verified) "Email verified" else "Email verification required", color = if (user.verified) Green else Amber, modifier = Modifier.padding(top = 6.dp)); if (!user.verified) Button(onVerify, Modifier.fillMaxWidth().padding(top = 12.dp)) { Text("Verify email") }; Text("Plan: ${access?.plan ?: user.plan}", modifier = Modifier.padding(top = 18.dp), fontWeight = FontWeight.Bold) }; HorizontalDivider(Modifier.padding(vertical = 22.dp)); Text("Study language", fontWeight = FontWeight.Bold); FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) { listOf("en" to "English", "zh" to "中文", "ar" to "العربية", "fr" to "Français", "es" to "Español").forEach { (code, label) -> FilterChip(language == code, { onLanguage(code) }, { Text(label) }) } }; Text("Math, Physics and Chemistry Prep follow this language. Chinese subjects stay in Chinese.", color = Muted, fontSize = 13.sp); if (error.isNotBlank()) ErrorCard(error); if (user != null) { Spacer(Modifier.height(28.dp)); OutlinedButton(onLogout, Modifier.fillMaxWidth()) { Text("Log out") } } } } }
 
-@Composable private fun AuthScreen(api: ApiClient, session: SessionStore, onBack: () -> Unit, onAuthenticated: (User) -> Unit) { val scope = rememberCoroutineScope(); var register by remember { mutableStateOf(false) }; var forgot by remember { mutableStateOf(false) }; var name by remember { mutableStateOf("") }; var email by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }; var loading by remember { mutableStateOf(false) }; var error by remember { mutableStateOf("") }; var notice by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize().padding(22.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.Center) { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) }; Brand(); Spacer(Modifier.height(28.dp)); Text(when { forgot -> "Reset password"; register -> "Create your account"; else -> "Log in" }, fontSize = 28.sp, fontWeight = FontWeight.Bold); Text(if (register) "Create an account after your free Prep preview." else "Continue your CSCA preparation.", color = Muted, modifier = Modifier.padding(vertical = 8.dp)); if (register) { OutlinedTextField(name, { name = it }, label = { Text("First name") }, singleLine = true, modifier = Modifier.fillMaxWidth()); Spacer(Modifier.height(10.dp)) }; OutlinedTextField(email, { email = it }, label = { Text("Email") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), singleLine = true, modifier = Modifier.fillMaxWidth()); if (!forgot) { Spacer(Modifier.height(10.dp)); OutlinedTextField(password, { password = it }, label = { Text("Password") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, supportingText = { if (register) Text("At least 8 characters") }, modifier = Modifier.fillMaxWidth()) }; if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 10.dp)); if (notice.isNotBlank()) Text(notice, color = Green, modifier = Modifier.padding(top = 10.dp)); Spacer(Modifier.height(16.dp)); Button(onClick = { scope.launch { loading = true; error = ""; try { if (forgot) { api.forgotPassword(email); notice = "If an account exists, a reset email has been sent." } else { val auth = if (register) api.register(name, email, password, session.language) else api.login(email, password); session.save(auth); onAuthenticated(auth.user) } } catch (e: Exception) { error = e.message ?: "Authentication failed." } finally { loading = false } } }, enabled = !loading && email.isNotBlank() && (forgot || password.length >= if (register) 8 else 1), modifier = Modifier.fillMaxWidth().height(52.dp)) { if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (forgot) "Send reset email" else if (register) "Create account" else "Log in") }; if (!forgot) TextButton({ register = !register; error = "" }, Modifier.align(Alignment.CenterHorizontally)) { Text(if (register) "Already registered? Log in" else "New student? Sign up") }; TextButton({ forgot = !forgot; error = "" }, Modifier.align(Alignment.CenterHorizontally)) { Text(if (forgot) "Back to login" else "Forgot password?") }; Text("Native secure sign-in. The website is not embedded in this app.", color = Muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) }
+@Composable private fun AuthScreen(api: ApiClient, session: SessionStore, onBack: () -> Unit, onAuthenticated: (User) -> Unit) {
+    val scope = rememberCoroutineScope(); val context = LocalContext.current; val credentialManager = remember { CredentialManager.create(context) }
+    var register by remember { mutableStateOf(false) }; var forgot by remember { mutableStateOf(false) }; var name by remember { mutableStateOf("") }; var email by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }; var loading by remember { mutableStateOf(false) }; var error by remember { mutableStateOf("") }; var notice by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxSize().padding(22.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.Center) {
+        IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) }; Brand(); Spacer(Modifier.height(28.dp))
+        Text(when { forgot -> "Reset password"; register -> "Create your account"; else -> "Log in" }, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text(if (register) "Create an account after your free Prep preview." else "Use the same account as CSCAPrep.com.", color = Muted, modifier = Modifier.padding(vertical = 8.dp))
+        if (!forgot) {
+            OutlinedButton(onClick = { scope.launch { loading = true; error = ""; try { val config = api.authConfig(); if (!config.googleEnabled || config.googleClientId.isBlank()) throw ApiException("Google sign-in is not configured yet."); val option = GetSignInWithGoogleOption.Builder(config.googleClientId).setNonce(config.nonce).build(); val request = GetCredentialRequest.Builder().addCredentialOption(option).build(); val response = credentialManager.getCredential(context = context, request = request); val credential = response.credential; if (credential !is CustomCredential || credential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) throw ApiException("Google returned an unsupported credential."); val idToken = GoogleIdTokenCredential.createFrom(credential.data).idToken; val auth = api.googleLogin(idToken, config); session.save(auth); onAuthenticated(auth.user) } catch (e: Exception) { error = e.message ?: "Google sign-in was cancelled or failed." } finally { loading = false } } }, enabled = !loading, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("G", color = Color(0xFF4285F4), fontWeight = FontWeight.Black, fontSize = 19.sp); Spacer(Modifier.width(12.dp)); Text("Continue with Google") }
+            Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) { HorizontalDivider(Modifier.weight(1f)); Text("  or continue with email  ", color = Muted, fontSize = 12.sp); HorizontalDivider(Modifier.weight(1f)) }
+        }
+        if (register) { OutlinedTextField(name, { name = it }, label = { Text("First name") }, singleLine = true, modifier = Modifier.fillMaxWidth()); Spacer(Modifier.height(10.dp)) }
+        OutlinedTextField(email, { email = it }, label = { Text("Email or username") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), singleLine = true, modifier = Modifier.fillMaxWidth())
+        if (!forgot) { Spacer(Modifier.height(10.dp)); OutlinedTextField(password, { password = it }, label = { Text("Password") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, supportingText = { if (register) Text("At least 8 characters") }, modifier = Modifier.fillMaxWidth()) }
+        if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 10.dp)); if (notice.isNotBlank()) Text(notice, color = Green, modifier = Modifier.padding(top = 10.dp)); Spacer(Modifier.height(16.dp))
+        Button(onClick = { scope.launch { loading = true; error = ""; try { if (forgot) { api.forgotPassword(email); notice = "If an account exists, a reset email has been sent." } else { val auth = if (register) api.register(name, email, password, session.language) else api.login(email, password); session.save(auth); onAuthenticated(auth.user) } } catch (e: Exception) { error = e.message ?: "Authentication failed." } finally { loading = false } } }, enabled = !loading && email.isNotBlank() && (forgot || password.length >= if (register) 8 else 1), modifier = Modifier.fillMaxWidth().height(52.dp)) { if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (forgot) "Send reset email" else if (register) "Create account" else "Log in") }
+        if (!forgot) TextButton({ register = !register; error = "" }, Modifier.align(Alignment.CenterHorizontally)) { Text(if (register) "Already registered? Log in" else "New student? Sign up") }
+        TextButton({ forgot = !forgot; error = "" }, Modifier.align(Alignment.CenterHorizontally)) { Text(if (forgot) "Back to login" else "Forgot password?") }
+        Text("Native secure sign-in connected to the CSCAPrep.com WordPress account database.", color = Muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
+    }
 }
 
 @Composable private fun VerificationScreen(user: User, onBack: () -> Unit, onRefresh: () -> Unit, onResend: () -> Unit) { Column(Modifier.fillMaxSize().padding(26.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { Icon(Icons.Default.MarkEmailUnread, null, tint = Blue, modifier = Modifier.size(70.dp)); Spacer(Modifier.height(18.dp)); Text("Verify your email", fontSize = 28.sp, fontWeight = FontWeight.Bold); Text("We sent a secure link to ${user.email}. Open it, then return here.", color = Muted, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 12.dp)); Button(onRefresh, Modifier.fillMaxWidth()) { Text("I verified my email") }; OutlinedButton(onResend, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Resend verification") }; TextButton(onBack) { Text("Back") } }
