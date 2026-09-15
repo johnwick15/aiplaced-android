@@ -21,7 +21,7 @@ class ApiClient(private val session: SessionStore) {
         parseAuth(request("/mobile/register", "POST", JSONObject().put("name", name).put("email", email).put("password", password).put("language", language), false))
     }
     suspend fun authConfig() = withContext(Dispatchers.IO) {
-        val o = request("/mobile/auth/config", authenticated = false)
+        val o = request("/mobile/auth/config", "POST", JSONObject(), false)
         AuthConfig(o.optBoolean("googleEnabled"), o.optString("googleClientId"), o.optString("requestId"), o.optString("nonce"))
     }
     suspend fun googleLogin(idToken: String, config: AuthConfig) = withContext(Dispatchers.IO) {
@@ -91,8 +91,8 @@ class ApiClient(private val session: SessionStore) {
 
     private fun request(path: String, method: String = "GET", body: JSONObject? = null, authenticated: Boolean = true): JSONObject {
         val conn = (URL(root + path).openConnection() as HttpURLConnection).apply {
-            requestMethod = method; connectTimeout = 15000; readTimeout = 45000
-            setRequestProperty("Accept", "application/json"); setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            requestMethod = method; connectTimeout = 15000; readTimeout = 45000; useCaches = false
+            setRequestProperty("Accept", "application/json"); setRequestProperty("Content-Type", "application/json; charset=utf-8"); setRequestProperty("Cache-Control", "no-store, no-cache")
             if (authenticated && session.token.isNotBlank()) setRequestProperty("Authorization", "Bearer ${session.token}")
             if (body != null && method != "GET") { doOutput = true; outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) } }
         }
