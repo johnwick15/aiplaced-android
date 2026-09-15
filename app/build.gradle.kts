@@ -12,8 +12,8 @@ android {
         applicationId = "com.cscaprep.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0-native"
+        versionCode = 3
+        versionName = "1.2.0-native-payments"
     }
 
     buildFeatures { compose = true }
@@ -38,5 +38,9 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("androidx.credentials:credentials:1.6.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    implementation("com.stripe:stripe-android:21.29.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
