@@ -12,8 +12,8 @@ android {
         applicationId = "com.cscaprep.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.2.2-auth-payment-fix"
+        versionCode = 6
+        versionName = "1.2.3-google-oauth-client-fix"
     }
 
     buildFeatures { compose = true }
