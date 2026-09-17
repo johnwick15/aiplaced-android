@@ -12,8 +12,8 @@ android {
         applicationId = "com.cscaprep.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.2.1-auth-challenge-fix"
+        versionCode = 5
+        versionName = "1.2.2-auth-payment-fix"
     }
 
     buildFeatures { compose = true }

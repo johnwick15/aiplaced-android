@@ -12,6 +12,6 @@ data class ExamContent(val exam: Exam, val questions: List<Question>, val langua
 data class Result(val score: Int, val total: Int, val percent: Int, val correct: Int, val incorrect: Int, val unanswered: Int)
 data class BillingPlan(val months: Int, val label: String, val amount: Int, val currency: String, val priceLabel: String, val featured: Boolean)
 data class BillingConfig(val enabled: Boolean, val publishableKey: String, val plans: List<BillingPlan>, val plan: String, val proUntil: String)
-data class PaymentIntentData(val clientSecret: String, val publishableKey: String, val months: Int)
+data class PaymentIntentData(val clientSecret: String, val paymentIntentId: String, val publishableKey: String, val months: Int)
 data class AuthConfig(val googleEnabled: Boolean, val googleClientId: String, val requestId: String, val nonce: String)
 class ApiException(message: String, val status: Int = 0, val code: String = "") : Exception(message)

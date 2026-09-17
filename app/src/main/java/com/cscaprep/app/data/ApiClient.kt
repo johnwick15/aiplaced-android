@@ -77,7 +77,11 @@ class ApiClient(private val session: SessionStore) {
 
     suspend fun createPaymentIntent(months: Int) = withContext(Dispatchers.IO) {
         val o = request("/mobile/billing/payment-intent", "POST", JSONObject().put("months", months))
-        PaymentIntentData(o.getString("clientSecret"), o.getString("publishableKey"), o.optInt("months", months))
+        PaymentIntentData(o.getString("clientSecret"), o.getString("paymentIntentId"), o.getString("publishableKey"), o.optInt("months", months))
+    }
+
+    suspend fun confirmPayment(paymentIntentId: String) = withContext(Dispatchers.IO) {
+        request("/mobile/billing/confirm", "POST", JSONObject().put("paymentIntentId", paymentIntentId)).optBoolean("activated")
     }
 
     private fun parseAuth(o: JSONObject) = AuthResult(o.getString("token"), parseUser(o.getJSONObject("user")))
@@ -93,7 +97,10 @@ class ApiClient(private val session: SessionStore) {
         val conn = (URL(root + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method; connectTimeout = 15000; readTimeout = 45000; useCaches = false
             setRequestProperty("Accept", "application/json"); setRequestProperty("Content-Type", "application/json; charset=utf-8"); setRequestProperty("Cache-Control", "no-store, no-cache")
-            if (authenticated && session.token.isNotBlank()) setRequestProperty("Authorization", "Bearer ${session.token}")
+            if (authenticated && session.token.isNotBlank()) {
+                setRequestProperty("Authorization", "Bearer ${session.token}")
+                setRequestProperty("X-CSCAPrep-Authorization", "Bearer ${session.token}")
+            }
             if (body != null && method != "GET") { doOutput = true; outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) } }
         }
         val status = conn.responseCode; val stream = if (status in 200..299) conn.inputStream else conn.errorStream

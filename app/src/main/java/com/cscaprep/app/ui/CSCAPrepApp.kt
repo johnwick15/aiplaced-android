@@ -172,6 +172,7 @@ fun CSCAPrepApp(api: ApiClient, session: SessionStore) {
     var error by remember { mutableStateOf("") }
     var notice by remember { mutableStateOf("") }
     var sheetResult by remember { mutableStateOf<PaymentSheetResult?>(null) }
+    var pendingPaymentIntentId by remember { mutableStateOf("") }
     val paymentSheet = rememberPaymentSheet { sheetResult = it }
 
     LaunchedEffect(user?.id, user?.verified) {
@@ -188,6 +189,7 @@ fun CSCAPrepApp(api: ApiClient, session: SessionStore) {
         when (val outcome = sheetResult) {
             PaymentSheetResult.Completed -> {
                 notice = "Payment received. Activating your access…"
+				if (pendingPaymentIntentId.isNotBlank()) runCatching { api.confirmPayment(pendingPaymentIntentId) }
                 repeat(20) {
                     delay(1500)
                     val latest = runCatching { api.me() }.getOrNull()
@@ -211,7 +213,8 @@ fun CSCAPrepApp(api: ApiClient, session: SessionStore) {
                 user == null -> { ErrorCard("Log in to purchase an access pass for your CSCAPrep account."); Button(onLogin, Modifier.fillMaxWidth()) { Text("Log in or sign up") } }
                 !user.verified -> { ErrorCard("Verify your email before purchasing access."); Button(onVerify, Modifier.fillMaxWidth()) { Text("Verify email") } }
                 loading -> Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                config?.enabled != true || config?.plans.isNullOrEmpty() -> ErrorCard("Native payment is not configured yet. Please contact CSCAPrep support.")
+                config == null -> ErrorCard(if (error.isNotBlank()) error else "Could not load payment configuration.")
+                config?.enabled != true || config?.plans.isNullOrEmpty() -> ErrorCard("Native payment is not configured. Check the Stripe publishable key, secret key and Price IDs in CSCAPrep settings.")
                 else -> {
                     config!!.plans.forEach { plan ->
                         val active = selected == plan.months
@@ -223,12 +226,12 @@ fun CSCAPrepApp(api: ApiClient, session: SessionStore) {
                             }
                         }
                     }
-                    Button(onClick = { val months = selected ?: return@Button; scope.launch { loading = true; error = ""; notice = ""; try { val intent = api.createPaymentIntent(months); PaymentConfiguration.init(context, intent.publishableKey); paymentSheet.presentWithPaymentIntent(intent.clientSecret, PaymentSheet.Configuration.Builder("CSCAPrep.com").build()) } catch (e: Exception) { error = e.message ?: "Could not start payment." } finally { loading = false } } }, enabled = selected != null && !loading, modifier = Modifier.fillMaxWidth().height(54.dp)) { Icon(Icons.Default.Lock, null); Spacer(Modifier.width(8.dp)); Text("Continue to secure payment") }
+                    Button(onClick = { val months = selected ?: return@Button; scope.launch { loading = true; error = ""; notice = ""; try { val intent = api.createPaymentIntent(months); pendingPaymentIntentId = intent.paymentIntentId; PaymentConfiguration.init(context, intent.publishableKey); paymentSheet.presentWithPaymentIntent(intent.clientSecret, PaymentSheet.Configuration.Builder("CSCAPrep.com").build()) } catch (e: Exception) { error = e.message ?: "Could not start payment." } finally { loading = false } } }, enabled = selected != null && !loading, modifier = Modifier.fillMaxWidth().height(54.dp)) { Icon(Icons.Default.Lock, null); Spacer(Modifier.width(8.dp)); Text("Continue to secure payment") }
                     Spacer(Modifier.height(18.dp)); Text("Your payment details are entered in Stripe's secure native payment sheet and are never stored by CSCAPrep.", color = Muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                 }
             }
             if (notice.isNotBlank()) Text(notice, color = Green, modifier = Modifier.padding(top = 14.dp))
-            if (error.isNotBlank()) ErrorCard(error)
+            if (error.isNotBlank() && config != null) ErrorCard(error)
         }
     }
 }
